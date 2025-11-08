@@ -10,6 +10,8 @@ public class Main{
     private static final int dt = 2;
     // assume speed is 5, no acceleration
     private static final int v = 5;
+    // maximum number of loops
+    private static final int timeOut = 1000;
 
 
     public static void fetchBox(int h, int extension){
@@ -22,17 +24,16 @@ public class Main{
         int h_next = init_y; int e_next=init_x; boolean g_next = false;
         boolean error = false;
         // to check loop termination
-        boolean boxFetched = false;
+        boolean boxReached = false;
         // initialize all motors off by default
         Motor y_motor = new Motor(MotorStatus.OFF);
         Motor x_motor = new Motor(MotorStatus.OFF);
         Motor grip_motor = new Motor(MotorStatus.OFF);
         // counter to keep track of "time"
         int counter = 0;
-        while (!boxFetched){
+        while (counter < timeOut){
             // read sensors. can introduce failures by inputting (delta + 1) instead of delta, for example
             // introducing failures for grip motor is different, maybe by removing the line turning on the grip motor?
-            // or giving the sensor a random boolean? rng.nextBoolean
             h_sens = getSensorVal(h_next, delta);
             e_sens = getSensorVal(e_next, delta);
             g_sens = grip_motor.status == MotorStatus.ON;
@@ -53,35 +54,42 @@ public class Main{
                 System.out.println("ERROR : Notify WMS");
                 break;
             }
+            // check success condition : height and extension reached and grip motor is on
+            if(boxReached && g_next && g_sens){
+                counter++;
+                System.out.println("--------------------------");
+                System.out.println("success at : " + 2*counter+ " seconds");
+                break;
+            }
             // logic
-            if(h_sens < h){
+            if(h_sens < h -delta){
                 y_motor.setDirection(Direction.Up);
                 y_motor.turnOn();
                 // predict
                 h_next = h_next + v*dt;
-            } else if (h_sens > h) {
+            } else if (h_sens > h + delta) {
                 y_motor.setDirection(Direction.Down);
                 y_motor.turnOn();
                 // predict
                 h_next = h_next - v*dt;
-            } else if (e_sens < extension){ // h == h_sens from here onwards
+            } else if (e_sens < extension - delta){ // h == h_sens +-delta from here onwards
                 y_motor.turnOff();
                 x_motor.setDirection(Direction.Forward);
                 x_motor.turnOn();
                 // predict
                 e_next = e_next + v*dt;
-            } else if ( e_sens > extension){
+            } else if ( e_sens > extension +delta){
                 x_motor.setDirection(Direction.Backward);
                 x_motor.turnOn();
                 // predict
                 e_next = e_next - v*dt;
-            } else { // e_sens == extension and h_sens == h we can pick up the box!!
+            } else { // e_sens == extension +-delta and h_sens == h +-delta. we can pick up the box!!
                 y_motor.turnOff();
                 x_motor.turnOff();
+                //comment out this line to simulate grip motor failure
                 grip_motor.turnOn();
+                boxReached = true;
                 g_next = true; // prediction
-                boxFetched = true;
-                //System.out.println("box fetched!");
             }
             counter++;
             // print system info after every loop
@@ -90,7 +98,6 @@ public class Main{
             System.out.println("sensors :  h_sens = " + h_sens+ ", e_sens = " + e_sens+ ", g-sens = " + g_sens);
             System.out.println("predictions : h_next = "+ h_next + ", e_next = " + e_next+ ", g_next = "+ g_next);
             System.out.println("motors : y_motor: "+ y_motor.printStatus()+ ", x_motor: "+x_motor.printStatus()+", grip motor: "+ grip_motor.printStatus());
-            System.out.println("box fetched : " + boxFetched);
         }
     }
 
