@@ -7,15 +7,15 @@ public class Main{
     // initial height
     private static final int init_y = 0;
     // assume length of a time period is 2 seconds
-    private static final int dt = 2;
+    private static final int dt = 1;
     // assume speed is 5, no acceleration
-    private static final int v = 5;
+    private static final int v = 2;
     // maximum number of loops
-    private static final int timeOut = 1000;
+    private static final int timeOut = 10000;
 
 
     public static void fetchBox(int h, int extension){
-        //constants
+        //fault tolerance constant
         int delta = 1;
         // sensor variables
         int h_sens = init_y; int e_sens = init_x;
@@ -24,7 +24,7 @@ public class Main{
         int h_next = init_y; int e_next=init_x; boolean g_next = false;
         boolean error = false;
         // to check loop termination
-        boolean boxReached = false;
+        boolean boxFetched = false;
         // initialize all motors off by default
         Motor y_motor = new Motor(MotorStatus.OFF);
         Motor x_motor = new Motor(MotorStatus.OFF);
@@ -41,10 +41,9 @@ public class Main{
             if (h_sens > h_next + delta || h_sens < h_next - delta
                 || e_sens > e_next + delta || e_sens < e_next -delta
                 || g_next != g_sens){
-                counter++;
                 // print all system info before breaking
                 System.out.println("-------------------------------");
-                System.out.println("status at time : " + 2*counter + " seconds");
+                System.out.println("status at time : " + dt*counter + " seconds");
                 System.out.println("sensors :  h_sens = " + h_sens+ ", e_sens = " + e_sens+ ", g-sens = " + g_sens);
                 System.out.println("predictions : h_next = "+ h_next + ", e_next = " + e_next+ ", g_next = "+ g_next);
                 System.out.println("motors : y_motor: "+ y_motor.printStatus()+ ", x_motor: "+x_motor.printStatus()+", grip motor: "+ grip_motor.printStatus());
@@ -54,50 +53,77 @@ public class Main{
                 System.out.println("ERROR : Notify WMS");
                 break;
             }
-            // check success condition : height and extension reached and grip motor is on
-            if(boxReached && g_next && g_sens){
-                counter++;
-                System.out.println("--------------------------");
-                System.out.println("success at : " + 2*counter+ " seconds");
+            // check success condition to terminate loop : arm back at default position and box is gripped
+            if((h_sens >= init_y - delta && h_sens <= init_y + delta) &&
+               (e_sens >= init_x -delta && e_sens <= init_x + delta) &&
+                boxFetched){
+                x_motor.turnOff();
+                y_motor.turnOff();
+                grip_motor.turnOff();
+                System.out.println("----------------------------------------");
+                System.out.println("box loaded at " + dt*counter + " seconds");
                 break;
             }
+
             // logic
-            if(h_sens < h -delta){
-                y_motor.setDirection(Direction.Up);
+            if(h_sens < h -delta){ // below h : go up or down depending on box being fetched
+                if (!boxFetched) {
+                    y_motor.setDirection(Direction.Up);
+                    h_next = h_next + v*dt; // prediction
+                } else if (h_sens > init_y + delta) {
+                    y_motor.setDirection(Direction.Down);
+                    h_next = h_next - v*dt; // prediction
+                }
                 y_motor.turnOn();
-                // predict
-                h_next = h_next + v*dt;
-            } else if (h_sens > h + delta) {
+            } else if (h_sens > h + delta) { // above h, go down
                 y_motor.setDirection(Direction.Down);
                 y_motor.turnOn();
                 // predict
                 h_next = h_next - v*dt;
             } else if (e_sens < extension - delta){ // h == h_sens +-delta from here onwards
                 y_motor.turnOff();
-                x_motor.setDirection(Direction.Forward);
-                x_motor.turnOn();
-                // predict
-                e_next = e_next + v*dt;
-            } else if ( e_sens > extension +delta){
+                if(!boxFetched){ // below extension , back or forward depending on box
+                    x_motor.setDirection(Direction.Forward);
+                    x_motor.turnOn();
+                    // predict
+                    e_next = e_next + v*dt;
+                } else if( e_sens > init_x + delta){
+                    x_motor.setDirection(Direction.Backward);
+                    x_motor.turnOn();
+                    // predict
+                    e_next = e_next - v*dt;
+                } else if (e_sens <= init_x + delta && e_sens >= init_x - delta ){ // extension at default, start lowering the arm
+                    y_motor.setDirection(Direction.Down);
+                    y_motor.turnOn();
+                    // predict
+                    h_next = h_next - v*dt;
+                }
+            } else if ( e_sens > extension +delta){ // over e , go back
                 x_motor.setDirection(Direction.Backward);
                 x_motor.turnOn();
                 // predict
                 e_next = e_next - v*dt;
-            } else { // e_sens == extension +-delta and h_sens == h +-delta. we can pick up the box!!
-                y_motor.turnOff();
-                x_motor.turnOff();
-                //comment out this line to simulate grip motor failure
-                grip_motor.turnOn();
-                boxReached = true;
-                g_next = true; // prediction
+            } else { // reached the box. e_sens == extension +-delta and h_sens == h +-delta.
+                if(g_sens && g_next){ // robot gripped the box. extend backwards
+                    boxFetched = true;
+                    x_motor.setDirection(Direction.Backward);
+                    x_motor.turnOn();
+                    e_next = e_next - v*dt; // prediction
+                } else {
+                    y_motor.turnOff();
+                    x_motor.turnOff();
+                    //comment out this line to simulate grip motor failure
+                    grip_motor.turnOn();
+                    g_next = true; // prediction
+                }
             }
-            counter++;
             // print system info after every loop
             System.out.println("-------------------------------");
-            System.out.println("status at time : " + 2*counter + " seconds");
+            System.out.println("status at time : " + dt*counter + " seconds");
             System.out.println("sensors :  h_sens = " + h_sens+ ", e_sens = " + e_sens+ ", g-sens = " + g_sens);
             System.out.println("predictions : h_next = "+ h_next + ", e_next = " + e_next+ ", g_next = "+ g_next);
             System.out.println("motors : y_motor: "+ y_motor.printStatus()+ ", x_motor: "+x_motor.printStatus()+", grip motor: "+ grip_motor.printStatus());
+            counter++;
         }
     }
 
@@ -108,7 +134,7 @@ public class Main{
     }
 
     public static void main(String[] args) {
-        fetchBox(40,20);
+        fetchBox(10,10);
     }
 
     public enum MotorStatus{
